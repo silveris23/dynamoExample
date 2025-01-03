@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
 import { executeStatement, put } from '../lib/ddb'
 import { parseGpsPayload } from '../lib/gpsParser'
-
+import { format } from 'date-fns'
+import { ko } from 'date-fns/locale'
 // PayloadCell 컴포넌트 추가
 const PayloadCell = ({ payload }) => {
   const [isExpanded, setIsExpanded] = useState(false)
@@ -26,7 +27,10 @@ const PayloadCell = ({ payload }) => {
         <div key={key} className="flex justify-between">
           <span className="font-semibold">{key}:</span>
           <span>
-            {typeof value === 'number' ? value.toFixed(7) : String(value)}
+            {typeof value === 'number' &&
+            ['longitude, latitude'].includes(value)
+              ? value.toFixed(7)
+              : String(value)}
           </span>
         </div>
       ))}
@@ -36,22 +40,36 @@ const PayloadCell = ({ payload }) => {
   )
 
   return (
-    <td className="px-6 py-4 text-sm">
-      <div className="flex flex-col gap-2">
-        <div className="flex justify-between items-center">
-          <div className="font-mono">{summaryView}</div>
-          <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            className="ml-2 px-2 py-1 text-xs text-blue-600 hover:text-blue-800"
-          >
-            {isExpanded ? '접기 ▼' : '펼치기 ▶'}
-          </button>
+    <>
+      <td className="px-2 py-2 whitespace-nowrap text-sm font-mono text-gray-500">
+        {parsedData.latitude.toFixed(7)}
+      </td>
+      <td className="px-2 py-2 whitespace-nowrap text-sm font-mono text-gray-500">
+        {parsedData.longitude.toFixed(7)}
+      </td>
+      <td className="px-2 py-2 whitespace-nowrap text-sm font-mono text-gray-500">
+        {parsedData.velocity}
+      </td>
+      <td className="px-2 py-2 whitespace-nowrap text-sm font-mono text-gray-500">
+        {parsedData.temperature}
+      </td>
+      <td className="px-6 py-4 text-sm">
+        <div className="flex flex-col gap-2">
+          <div className="flex justify-between items-center">
+            {/* <div className="font-mono">{summaryView}</div> */}
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="ml-2 px-2 py-1 text-xs text-blue-600 hover:text-blue-800"
+            >
+              {isExpanded ? '접기 ▼' : '펼치기 ▶'}
+            </button>
+          </div>
+          {isExpanded && (
+            <div className="mt-2 p-3 bg-gray-50 rounded-lg">{detailView}</div>
+          )}
         </div>
-        {isExpanded && (
-          <div className="mt-2 p-3 bg-gray-50 rounded-lg">{detailView}</div>
-        )}
-      </div>
-    </td>
+      </td>
+    </>
   )
 }
 
@@ -61,7 +79,7 @@ const Report = () => {
   const [error, setError] = useState(null)
   const [jsonInput, setJsonInput] = useState('')
   const [insertStatus, setInsertStatus] = useState('')
-  const [productKey, setProductKey] = useState('3691-a815-2af2-df99-4a92') // 초기값 설정
+  const [productKey, setProductKey] = useState('f2c1-fe04-4d89-4713-4de2') // 초기값 설정
 
   const fetchData = async (key) => {
     if (!key) return
@@ -70,8 +88,13 @@ const Report = () => {
       setIsLoading(true)
       setError(null)
       const list = await executeStatement({
-        statement: `SELECT * FROM "EonMqttHistory" WHERE "productKey" = ? AND topic = ?`,
-        parameters: [key, `pvat/v1/${key}/upload/gps`],
+        statement: `SELECT * FROM "EonMqttHistory" WHERE "productKey" = ? AND topic = ? AND "timestamp" > ?`,
+        parameters: [
+          key,
+          `pvat/v1/${key}/upload/gps`,
+          1735799000,
+          //   new Date().getTime() / 1000 - 12 * 3600,
+        ],
         operationType: 'select',
       })
 
@@ -121,7 +144,7 @@ const Report = () => {
   }
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
+    <div className="p-6 max-w-6xl mx-auto">
       <h1 className="text-2xl font-bold mb-4">GPS 데이터</h1>
 
       {/* 검색 폼 */}
@@ -185,6 +208,12 @@ const Report = () => {
         <div className="text-red-500 mb-4">에러: {error}</div>
       ) : gpsData.length > 0 ? (
         <div className="overflow-x-auto shadow-md rounded-lg">
+          <div>전체 {gpsData.length} 건 </div>
+          <div>
+            {format(new Date(gpsData[0].timestamp * 1000), 'PPP', {
+              locale: ko,
+            })}{' '}
+          </div>
           <table className="min-w-full bg-white">
             <thead>
               <tr className="bg-gray-100">
@@ -192,7 +221,19 @@ const Report = () => {
                   시간
                 </th>
                 <th className="px-6 py-3 border-b border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                  데이터
+                  위도
+                </th>
+                <th className="px-6 py-3 border-b border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  경도
+                </th>
+                <th className="px-6 py-3 border-b border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  속도
+                </th>
+                <th className="px-6 py-3 border-b border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  온도
+                </th>
+                <th className="px-6 py-3 border-b border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  상세
                 </th>
               </tr>
             </thead>
@@ -202,16 +243,18 @@ const Report = () => {
                   key={index}
                   className="hover:bg-gray-50 transition-colors duration-200"
                 >
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-500">
-                    {new Date(item.timestamp * 1000).toLocaleTimeString(
-                      'ko-KR',
-                      {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        second: '2-digit',
-                        hour12: false,
-                      }
+                  <td className="px-2 py-2 whitespace-nowrap text-sm font-mono text-gray-500">
+                    {format(new Date(item.timestamp * 1000), 'pp', {
+                      locale: ko,
+                    })}{' '}
+                    {String(Math.round((item.timestamp % 1) * 1000)).padStart(
+                      3,
+                      '0'
                     )}
+                    <br />
+                    <span className="text-xs">
+                      {Math.round(item.timestamp * 1000)}
+                    </span>
                   </td>
                   <PayloadCell payload={item.payload} />
                 </tr>
